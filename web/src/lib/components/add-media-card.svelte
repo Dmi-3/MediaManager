@@ -1,18 +1,16 @@
 <script lang="ts">
-	import { Button } from '$lib/components/ui/button/index.js';
-	import * as Card from '$lib/components/ui/card/index.js';
-	import { ImageOff, LoaderCircle } from 'lucide-svelte';
+	import { Star, ImageOff, LoaderCircle, Check } from 'lucide-svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import type { MetaDataProviderSearchResult } from '$lib/api/api';
 	import client from '$lib/api';
 
 	let loading = $state(false);
-	let errorMessage = $state<string | null>(null);
 	let { result, isShow = true }: { result: MetaDataProviderSearchResult; isShow: boolean } =
 		$props();
 
 	async function addMedia() {
+		if (result.added || loading) return;
 		loading = true;
 		let data;
 		if (isShow) {
@@ -38,81 +36,92 @@
 			});
 			data = response.data;
 		}
-
 		if (isShow) {
-			await goto(resolve('/dashboard/tv/[showId]', { showId: data?.id ?? '' }), {
-				invalidateAll: true
-			});
+			await goto(resolve('/dashboard/tv/[showId]', { showId: data?.id ?? '' }), { invalidateAll: true });
 		} else {
-			await goto(resolve('/dashboard/movies/[movieId]', { movieId: data?.id ?? '' }), {
-				invalidateAll: true
-			});
+			await goto(resolve('/dashboard/movies/[movieId]', { movieId: data?.id ?? '' }), { invalidateAll: true });
 		}
 		loading = false;
 	}
+
+	function goToExisting() {
+		if (isShow) {
+			goto(resolve('/dashboard/tv/[showId]', { showId: result.id ?? '' }), { invalidateAll: true });
+		} else {
+			goto(resolve('/dashboard/movies/[movieId]', { movieId: result.id ?? '' }), { invalidateAll: true });
+		}
+	}
 </script>
 
-<Card.Root class="col-span-full flex h-full flex-col overflow-x-hidden sm:col-span-1">
-	<Card.Header>
-		<Card.Title class="flex h-12 items-center leading-tight">
-			{result.name}
-			{#if result.year != null}
-				({result.year})
-			{/if}
-		</Card.Title>
-		<Card.Description class="truncate"
-			>{result.overview !== '' ? result.overview : 'No overview available'}</Card.Description
-		>
-	</Card.Header>
-	<Card.Content class="flex flex-1 items-center justify-center">
-		{#if result.poster_path != null}
-			<img
-				class="h-full w-full rounded-lg object-contain"
-				src={result.poster_path}
-				alt="{result.name}'s Poster Image"
-			/>
-		{:else}
-			<div class="flex h-full w-full items-center justify-center">
-				<ImageOff class="h-12 w-12 text-gray-400" />
+<div
+	class="group relative aspect-[2/3] w-full cursor-pointer overflow-hidden rounded-xl shadow-lg"
+	onclick={result.added ? goToExisting : addMedia}
+	role="button"
+	tabindex="0"
+	onkeydown={(e) => e.key === 'Enter' && (result.added ? goToExisting() : addMedia())}
+>
+	{#if result.poster_path != null}
+		<img
+			class="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+			src={result.poster_path}
+			alt="{result.name} poster"
+		/>
+	{:else}
+		<div class="flex h-full w-full items-center justify-center bg-gray-800">
+			<ImageOff class="h-12 w-12 text-gray-600" />
+		</div>
+	{/if}
+
+	{#if result.added}
+		<div class="absolute left-2 top-2 flex items-center gap-1 rounded-full bg-green-500/90 px-2 py-0.5 text-xs font-medium text-white backdrop-blur-sm">
+			<Check class="h-3 w-3" />
+			Available
+		</div>
+	{/if}
+
+	<div class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/50 to-transparent p-3 pt-12 transition-opacity duration-200 group-hover:opacity-0">
+		<h3 class="truncate text-sm font-semibold leading-tight text-white">{result.name}</h3>
+		{#if result.year != null}
+			<span class="text-xs text-gray-400">{result.year}</span>
+		{/if}
+	</div>
+
+	<div class="absolute inset-0 flex flex-col justify-end bg-black/85 p-3 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+		{#if result.vote_average != null}
+			<div class="mb-2 flex items-center gap-1">
+				<Star class="h-3 w-3 fill-amber-400 text-amber-400" />
+				<span class="text-xs text-amber-400">{Math.round(result.vote_average * 10) / 10}/10</span>
 			</div>
 		{/if}
-	</Card.Content>
-	<Card.Footer class="flex flex-col items-start gap-2 rounded-b-lg border-t bg-card p-4">
-		{#if result.added}
-			<Button
-				class="w-full font-semibold"
-				variant="secondary"
-				href={resolve(
-					isShow ? '/dashboard/tv/[showId]' : '/dashboard/movies/[movieId]',
-					isShow ? { showId: result.id ?? '' } : { movieId: result.id ?? '' }
-				)}
-			>
-				{isShow ? 'Show already exists' : 'Movie already exists'}
-			</Button>
-		{:else}
-			<Button class="w-full font-semibold" disabled={loading} onclick={() => addMedia()}>
-				{#if loading}
-					<LoaderCircle class="mr-2 h-4 w-4 animate-spin" />
-					<span class="animate-pulse">Loading...</span>
-				{:else}
-					{`Add ${isShow ? 'Show' : 'Movie'}`}
-				{/if}
-			</Button>
-		{/if}
-		<div class="flex w-full items-center gap-2">
-			{#if result.vote_average != null}
-				<span class="flex items-center text-sm font-medium text-yellow-600">
-					<svg class="mr-1 h-4 w-4 text-yellow-400" fill="currentColor" viewBox="0 0 20 20"
-						><path
-							d="M10 15l-5.878 3.09 1.122-6.545L.488 6.91l6.561-.955L10 0l2.951 5.955 6.561.955-4.756 4.635 1.122 6.545z"
-						/></svg
-					>
-					Rating: {Math.round(result.vote_average)}/10
-				</span>
+		<h3 class="mb-1 text-sm font-bold leading-tight text-white">
+			{result.name}
+			{#if result.year != null}
+				<span class="font-normal text-gray-400">({result.year})</span>
 			{/if}
-		</div>
-		{#if errorMessage}
-			<p class="w-full rounded bg-red-50 px-2 py-1 text-xs text-red-500">{errorMessage}</p>
+		</h3>
+		{#if result.overview && result.overview !== ''}
+			<p class="mb-3 line-clamp-4 text-xs leading-relaxed text-gray-300">{result.overview}</p>
 		{/if}
-	</Card.Footer>
-</Card.Root>
+		{#if result.added}
+			<button
+				class="w-full rounded-lg bg-gray-600 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-500"
+				onclick|stopPropagation={goToExisting}
+			>
+				View {isShow ? 'Show' : 'Movie'}
+			</button>
+		{:else}
+			<button
+				class="flex w-full items-center justify-center gap-2 rounded-lg bg-amber-500 py-2 text-sm font-semibold text-black transition-colors hover:bg-amber-400 disabled:opacity-60"
+				disabled={loading}
+				onclick|stopPropagation={addMedia}
+			>
+				{#if loading}
+					<LoaderCircle class="h-4 w-4 animate-spin" />
+					Adding...
+				{:else}
+					Add {isShow ? 'Show' : 'Movie'}
+				{/if}
+			</button>
+		{/if}
+	</div>
+</div>
