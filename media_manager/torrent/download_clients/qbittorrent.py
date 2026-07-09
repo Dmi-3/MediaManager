@@ -117,11 +117,16 @@ class QbittorrentDownloadClient(AbstractDownloadClient):
         finally:
             self.api_client.auth_log_out()
 
-        if answer != "Ok.":
-            log.error(
-                f"Failed to download torrent, API-Answer isn't 'Ok.'; API Answer: {answer}"
-            )
-            msg = f"Failed to download torrent, API-Answer isn't 'Ok.'; API Answer: {answer}"
+        # qBittorrent WebAPI v2.14.0+ returns a TorrentsAddedMetadata object instead of
+        # the legacy "Ok." string; treat either as success when no failures are reported.
+        if isinstance(answer, str):
+            succeeded = answer == "Ok."
+        else:
+            succeeded = getattr(answer, "failure_count", 1) == 0
+
+        if not succeeded:
+            log.error(f"Failed to download torrent, API Answer: {answer}")
+            msg = f"Failed to download torrent, API Answer: {answer}"
             raise RuntimeError(msg)
 
         log.info(f"Successfully processed torrent: {indexer_result.title}")
