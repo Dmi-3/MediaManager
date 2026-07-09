@@ -6,6 +6,7 @@ from media_manager.auth.users import current_active_user, current_superuser
 from media_manager.config import LibraryItem, MediaManagerConfig
 from media_manager.exceptions import ConflictError, NotFoundError
 from media_manager.indexer.schemas import (
+    DirectTorrentImport,
     IndexerQueryResult,
     IndexerQueryResultId,
 )
@@ -289,4 +290,28 @@ def download_torrent_for_movie(
         public_indexer_result_id=public_indexer_result_id,
         movie=movie,
         override_movie_file_path_suffix=override_file_path_suffix,
+    )
+
+
+@router.post(
+    "/{movie_id}/torrents/direct",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(current_active_user)],
+)
+def download_direct_torrent_for_movie(
+    movie_service: movie_service_dep,
+    movie: movie_dep,
+    body: DirectTorrentImport,
+) -> Torrent:
+    """
+    Import and download a torrent already found by an external search UI (e.g. iris),
+    bypassing this service's own indexer search.
+    """
+    return movie_service.download_direct_torrent(
+        title=body.title,
+        download_url=body.download_url,
+        size=body.size,
+        seeders=body.seeders,
+        indexer=body.indexer,
+        movie=movie,
     )

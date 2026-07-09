@@ -274,6 +274,47 @@ class MovieService(BaseMediaService[Movie, Movie]):
             self.torrent_service.resume_download(torrent=movie_torrent)
         return movie_torrent
 
+    def download_direct_torrent(
+        self,
+        title: str,
+        download_url: str,
+        size: int,
+        seeders: int,
+        indexer: str | None,
+        movie: Movie,
+        override_movie_file_path_suffix: str = "",
+    ) -> Torrent:
+        """
+        Import and download a torrent that was already found by an external search UI,
+        bypassing this service's own indexer search. Reuses the existing download_torrent
+        pipeline (and its season/episode/quality parsing, which is derived from title).
+
+        :param title: The release title (season/episode/quality are parsed from this).
+        :param download_url: Magnet link or URL to the .torrent file.
+        :param size: Size in bytes.
+        :param seeders: Seeder count, if known.
+        :param indexer: Name of the originating indexer, for display purposes.
+        :param movie: The movie object.
+        :param override_movie_file_path_suffix: Optional override for the file path suffix.
+        :return: The downloaded torrent.
+        """
+        result = IndexerQueryResult(
+            title=title,
+            download_url=download_url,
+            seeders=seeders,
+            flags=[],
+            size=size,
+            usenet=False,
+            age=0,
+            indexer=indexer or "iris",
+        )
+        saved_result = self.indexer_service.repository.save_result(result=result)
+        return self.download_torrent(
+            public_indexer_result_id=saved_result.id,
+            movie=movie,
+            override_movie_file_path_suffix=override_movie_file_path_suffix,
+        )
+
     def get_movie_root_path(self, movie: Movie) -> Path:
         misc_config = MediaManagerConfig().misc
         return self.get_root_directory(

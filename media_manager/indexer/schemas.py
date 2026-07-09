@@ -132,3 +132,16 @@ class IndexerQueryResult(BaseModel):
             return self.seeders < other.seeders
 
         return self.size > other.size
+
+
+class DirectTorrentImport(BaseModel):
+    """
+    A torrent already found by an external search UI (e.g. iris), imported directly
+    without going through this service's own indexer search.
+    """
+
+    title: str
+    download_url: str
+    size: int
+    seeders: int = 0
+    indexer: str | None = "iris"

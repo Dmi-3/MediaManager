@@ -6,6 +6,7 @@ from media_manager.auth.users import current_active_user, current_superuser
 from media_manager.config import LibraryItem, MediaManagerConfig
 from media_manager.exceptions import MediaAlreadyExistsError, NotFoundError
 from media_manager.indexer.schemas import (
+    DirectTorrentImport,
     IndexerQueryResult,
     IndexerQueryResultId,
 )
@@ -357,6 +358,30 @@ def download_a_torrent(
         public_indexer_result_id=public_indexer_result_id,
         show_id=show_id,
         override_show_file_path_suffix=override_file_path_suffix,
+    )
+
+
+@router.post(
+    "/torrents/direct",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(current_superuser)],
+)
+def download_direct_torrent(
+    tv_service: tv_service_dep,
+    show_id: ShowId,
+    body: DirectTorrentImport,
+) -> Torrent:
+    """
+    Import and download a torrent already found by an external search UI (e.g. iris),
+    bypassing this service's own indexer search.
+    """
+    return tv_service.download_direct_torrent(
+        title=body.title,
+        download_url=body.download_url,
+        size=body.size,
+        seeders=body.seeders,
+        indexer=body.indexer,
+        show_id=show_id,
     )
 
 
