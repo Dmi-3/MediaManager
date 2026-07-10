@@ -514,7 +514,7 @@ class TvService(BaseMediaService[Show, Show]):
             self.torrent_service.pause_download(torrent=show_torrent)
 
         if only_file_name:
-            for _ in range(20):
+            for _ in range(60):
                 if self.torrent_service.restrict_to_file(
                     show_torrent, lambda name: only_file_name in name
                 ):
