@@ -110,11 +110,20 @@ class QbittorrentDownloadClient(AbstractDownloadClient):
 
         try:
             self.api_client.auth_log_in()
-            answer = self.api_client.torrents_add(
-                category="MediaManager",
-                urls=indexer_result.download_url,
-                save_path=indexer_result.title,
-            )
+            try:
+                answer = self.api_client.torrents_add(
+                    category="MediaManager",
+                    urls=indexer_result.download_url,
+                    save_path=indexer_result.title,
+                )
+            except qbittorrentapi.Conflict409Error:
+                # qBittorrent already knows this torrent (e.g. a previous add whose
+                # MediaManager DB record was since removed); treat as success rather
+                # than failing, so callers reuse the existing job instead of erroring.
+                log.info(
+                    f"Torrent already present in qBittorrent, reusing it: {indexer_result.title}"
+                )
+                answer = "Ok."
         finally:
             self.api_client.auth_log_out()
 
