@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Callable
 
 import qbittorrentapi
 from qbittorrentapi import Conflict409Error
@@ -212,3 +213,49 @@ class QbittorrentDownloadClient(AbstractDownloadClient):
             self.api_client.torrents_resume(torrent_hashes=torrent.hash)
         finally:
             self.api_client.auth_log_out()
+
+    def get_files(self, torrent: Torrent) -> list:
+        """
+        Get the file list of a torrent from qBittorrent (name, id, priority per file).
+
+        :param torrent: The torrent to get files for.
+        :return: The list of files, empty if not available yet (e.g. magnet metadata pending).
+        """
+        try:
+            self.api_client.auth_log_in()
+            files = self.api_client.torrents_files(torrent_hash=torrent.hash)
+        finally:
+            self.api_client.auth_log_out()
+        return list(files) if files else []
+
+    def set_file_priority_keep_only(
+        self, torrent: Torrent, keep_name_matcher: Callable[[str], bool]
+    ) -> bool:
+        """
+        Set priority 0 for every file in the torrent except the ones for which
+        keep_name_matcher(file_name) is True, which get priority 1.
+
+        :param torrent: The torrent to restrict.
+        :param keep_name_matcher: Predicate deciding which files to keep at normal priority.
+        :return: True if the file list was available and priorities were set, False otherwise.
+        """
+        files = self.get_files(torrent)
+        if not files:
+            return False
+
+        skip_ids = [f.id for f in files if not keep_name_matcher(f.name)]
+        keep_ids = [f.id for f in files if keep_name_matcher(f.name)]
+
+        try:
+            self.api_client.auth_log_in()
+            if skip_ids:
+                self.api_client.torrents_file_priority(
+                    torrent_hash=torrent.hash, file_ids=skip_ids, priority=0
+                )
+            if keep_ids:
+                self.api_client.torrents_file_priority(
+                    torrent_hash=torrent.hash, file_ids=keep_ids, priority=1
+                )
+        finally:
+            self.api_client.auth_log_out()
+        return bool(keep_ids)

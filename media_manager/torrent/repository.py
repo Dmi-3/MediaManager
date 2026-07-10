@@ -59,6 +59,13 @@ class TorrentRepository:
             raise NotFoundError(msg)
         return TorrentSchema.model_validate(result)
 
+    def get_torrent_by_hash(self, torrent_hash: str) -> TorrentSchema | None:
+        stmt = select(Torrent).where(Torrent.hash == torrent_hash)
+        result = self.db.execute(stmt).scalars().first()
+        if result is None:
+            return None
+        return TorrentSchema.model_validate(result)
+
     def delete_torrent(
         self, torrent_id: TorrentId, delete_associated_media_files: bool = False
     ) -> None:

@@ -87,6 +87,12 @@ class DownloadManager:
             raise RuntimeError(msg)
         return self._torrent_client
 
+    def get_client_for(
+        self, indexer_result: IndexerQueryResult | Torrent
+    ) -> AbstractDownloadClient:
+        """Public accessor for the download client that would handle a given torrent."""
+        return self._get_appropriate_client(indexer_result)
+
     def download(self, indexer_result: IndexerQueryResult) -> Torrent:
         """
         Download content using the appropriate client

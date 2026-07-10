@@ -1,5 +1,7 @@
 import logging
 
+from collections.abc import Callable
+
 from media_manager.indexer.schemas import IndexerQueryResult
 from media_manager.movies.schemas import Movie, MovieFile
 from media_manager.torrent.manager import DownloadManager
@@ -118,3 +120,26 @@ class TorrentService:
 
     def get_movie_files_of_torrent(self, torrent: Torrent) -> list[MovieFile]:
         return self.torrent_repository.get_movie_files_of_torrent(torrent_id=torrent.id)
+
+    def get_torrent_by_hash(self, torrent_hash: str) -> Torrent | None:
+        return self.torrent_repository.get_torrent_by_hash(torrent_hash=torrent_hash)
+
+    def restrict_to_file(
+        self, torrent: Torrent, keep_name_matcher: Callable[[str], bool]
+    ) -> bool:
+        """
+        Restrict a torrent's download to only files matching keep_name_matcher, by
+        setting qBittorrent file priority 0 for everything else. Returns False if the
+        torrent's file list isn't available yet (e.g. magnet metadata still pending)
+        or the download client doesn't support per-file priorities.
+
+        :param torrent: The torrent to restrict.
+        :param keep_name_matcher: Predicate called with each file's name; files for
+            which this returns False are deprioritized.
+        :return: True if priorities were set, False if not yet possible.
+        """
+        client = self.download_manager.get_client_for(torrent)
+        set_priority = getattr(client, "set_file_priority_keep_only", None)
+        if set_priority is None:
+            return False
+        return set_priority(torrent, keep_name_matcher)

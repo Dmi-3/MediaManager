@@ -1,4 +1,5 @@
 import shutil
+import time
 from pathlib import Path
 
 from sqlalchemy.exc import IntegrityError
@@ -13,6 +14,7 @@ from media_manager.torrent.schemas import (
     Torrent,
 )
 from media_manager.torrent.service import TorrentService
+from media_manager.torrent.utils import get_torrent_hash
 from media_manager.tv import log
 from media_manager.tv.importer import TvImportService
 from media_manager.tv.metadata import TvMetadataService
@@ -463,11 +465,17 @@ class TvService(BaseMediaService[Show, Show]):
         indexer: str | None,
         show_id: ShowId,
         override_show_file_path_suffix: str = "",
+        only_file_name: str | None = None,
     ) -> Torrent:
         """
         Import and download a torrent that was already found by an external search UI,
-        bypassing this service's own indexer search. Reuses the existing download_torrent
-        pipeline (and its season/episode/quality parsing, which is derived from title).
+        bypassing this service's own indexer search. Season/episode/quality are parsed
+        from title, same as the standard search+download flow.
+
+        If only_file_name is given, restrict the download to just that one file via
+        qBittorrent file priority (used to grab a single episode out of a season-pack
+        release without downloading the rest). If a torrent with the same hash is
+        already known, it is reused instead of adding a duplicate.
 
         :param title: The release title (season/episode/quality are parsed from this).
         :param download_url: Magnet link or URL to the .torrent file.
@@ -476,7 +484,8 @@ class TvService(BaseMediaService[Show, Show]):
         :param indexer: Name of the originating indexer, for display purposes.
         :param show_id: The ID of the show.
         :param override_show_file_path_suffix: Optional override for the file path suffix.
-        :return: The downloaded torrent.
+        :param only_file_name: If set, only this file gets normal download priority.
+        :return: The torrent (existing or newly added).
         """
         result = IndexerQueryResult(
             title=title,
@@ -488,12 +497,53 @@ class TvService(BaseMediaService[Show, Show]):
             age=0,
             indexer=indexer or "iris",
         )
-        saved_result = self.indexer_service.repository.save_result(result=result)
-        return self.download_torrent(
-            public_indexer_result_id=saved_result.id,
-            show_id=show_id,
-            override_show_file_path_suffix=override_show_file_path_suffix,
-        )
+        torrent_hash = get_torrent_hash(torrent=result)
+        show_torrent = self.torrent_service.get_torrent_by_hash(torrent_hash)
+
+        if show_torrent is None:
+            saved_result = self.indexer_service.repository.save_result(result=result)
+            show_torrent = self.torrent_service.download(indexer_result=saved_result)
+            self.torrent_service.pause_download(torrent=show_torrent)
+
+        if only_file_name:
+            for _ in range(20):
+                if self.torrent_service.restrict_to_file(
+                    show_torrent, lambda name: only_file_name in name
+                ):
+                    break
+                time.sleep(1)
+            else:
+                log.warning(
+                    f"Timed out waiting for file list of torrent {show_torrent.hash} "
+                    f"to restrict download to {only_file_name!r}"
+                )
+
+        for season_number in result.season:
+            season = self.tv_repository.get_season_by_number(
+                season_number=season_number, show_id=show_id
+            )
+            episodes = {episode.number: episode.id for episode in season.episodes}
+            target_numbers = result.episode or [e.number for e in season.episodes]
+            for ep_number in target_numbers:
+                episode_id = episodes.get(EpisodeNumber(ep_number))
+                if episode_id is None:
+                    continue
+                episode_file = EpisodeFile(
+                    episode_id=episode_id,
+                    quality=result.quality,
+                    torrent_id=show_torrent.id,
+                    file_path_suffix=override_show_file_path_suffix,
+                )
+                try:
+                    self.tv_repository.add_episode_file(episode_file=episode_file)
+                except IntegrityError:
+                    log.debug(
+                        f"Episode file for episode {episode_id} and torrent {show_torrent.id} "
+                        "already recorded, skipping"
+                    )
+
+        self.torrent_service.resume_download(torrent=show_torrent)
+        return show_torrent
 
     def get_root_show_directory(self, show: Show) -> Path:
         misc_config = MediaManagerConfig().misc

@@ -382,6 +382,7 @@ def download_direct_torrent(
         seeders=body.seeders,
         indexer=body.indexer,
         show_id=show_id,
+        only_file_name=body.only_file_name,
     )
 
 

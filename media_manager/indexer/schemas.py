@@ -145,3 +145,9 @@ class DirectTorrentImport(BaseModel):
     size: int
     seeders: int = 0
     indexer: str | None = "iris"
+    only_file_name: str | None = None
+    """
+    If set, restrict the download to only the file whose name contains this value
+    (via qBittorrent file priority), instead of downloading every file in the torrent.
+    Used to grab a single episode out of a season-pack release.
+    """
