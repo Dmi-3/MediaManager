@@ -12,6 +12,7 @@ from media_manager.indexer.utils import evaluate_indexer_query_results
 from media_manager.notification.service import NotificationService
 from media_manager.torrent.schemas import (
     Torrent,
+    TorrentStatus,
 )
 from media_manager.torrent.service import TorrentService
 from media_manager.torrent.utils import get_torrent_hash
@@ -499,6 +500,13 @@ class TvService(BaseMediaService[Show, Show]):
         )
         torrent_hash = get_torrent_hash(torrent=result)
         show_torrent = self.torrent_service.get_torrent_by_hash(torrent_hash)
+
+        if show_torrent is not None:
+            # a DB row can outlive its qBittorrent job (e.g. manually removed); treat
+            # that as if no torrent existed and re-add rather than silently doing nothing
+            live = self.torrent_service.get_torrent_status(show_torrent)
+            if live.status == TorrentStatus.unknown:
+                show_torrent = None
 
         if show_torrent is None:
             saved_result = self.indexer_service.repository.save_result(result=result)
