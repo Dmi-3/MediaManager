@@ -383,7 +383,25 @@ def download_direct_torrent(
         indexer=body.indexer,
         show_id=show_id,
         only_file_name=body.only_file_name,
+        episode_numbers=body.episode_numbers,
     )
+
+
+@router.get(
+    "/torrents/direct/status",
+    dependencies=[Depends(current_superuser)],
+)
+def get_direct_torrent_status(
+    tv_service: tv_service_dep,
+    download_url: str,
+    title: str = "iris-status-check",
+) -> dict:
+    """
+    Check the status of a torrent previously imported via POST /torrents/direct,
+    without adding it, by recomputing its hash from download_url. Used by iris to
+    poll download progress for a specific episode.
+    """
+    return tv_service.get_direct_torrent_status(download_url=download_url, title=title)
 
 
 # -----------------------------------------------------------------------------

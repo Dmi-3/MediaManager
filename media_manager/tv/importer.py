@@ -72,11 +72,38 @@ class TvImportService(BaseMediaService[Show, Show]):
                 season_dir = self.get_media_root_path(show) / f"Season {s_num}"
                 season_dir.mkdir(parents=True, exist_ok=True)
 
+                episode = None
+                try:
+                    season = self.tv_repository.get_season_by_number(s_num, show.id)
+                    episode = next(
+                        (e for e in season.episodes if e.number == e_num), None
+                    )
+                except Exception:
+                    log.exception(f"Could not look up episode for {video_file.name}")
+
+                # If this episode was already imported from a *different* torrent,
+                # don't overwrite that file: give this one a distinguishing suffix
+                # instead, so both land in the season folder as separate files.
+                # Jellyfin groups same-episode files in one folder as alternate
+                # versions, rather than silently losing whichever was imported
+                # first.
+                suffix = file_path_suffix
+                if not suffix and episode is not None and torrent_id is not None:
+                    existing_files = self.tv_repository.get_episode_files_by_episode_id(
+                        episode.id
+                    )
+                    has_other_source = any(
+                        ef.torrent_id is not None and str(ef.torrent_id) != str(torrent_id)
+                        for ef in existing_files
+                    )
+                    if has_other_source:
+                        suffix = f"torrent-{str(torrent_id)[:8]}"
+
                 target_name = (
                     f"{remove_special_characters(show.name)} - S{s_num:02d}E{e_num:02d}"
                 )
-                if file_path_suffix:
-                    target_name += f" - {file_path_suffix}"
+                if suffix:
+                    target_name += f" - {suffix}"
                 target_file = season_dir / f"{target_name}{video_file.suffix}"
 
                 import_file(target_file=target_file, source_file=video_file)
@@ -84,17 +111,13 @@ class TvImportService(BaseMediaService[Show, Show]):
 
                 # Update DB
                 try:
-                    season = self.tv_repository.get_season_by_number(s_num, show.id)
-                    episode = next(
-                        (e for e in season.episodes if e.number == e_num), None
-                    )
                     if episode:
                         self.tv_repository.add_episode_file(
                             EpisodeFile(
                                 episode_id=episode.id,
                                 quality=quality,
                                 torrent_id=torrent_id,
-                                file_path_suffix=file_path_suffix,
+                                file_path_suffix=suffix,
                             )
                         )
                 except Exception:

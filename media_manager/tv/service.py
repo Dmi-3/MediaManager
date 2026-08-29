@@ -2,6 +2,8 @@ import shutil
 import time
 from pathlib import Path
 
+import qbittorrentapi
+
 from sqlalchemy.exc import IntegrityError
 
 from media_manager.common.service import BaseMediaService
@@ -457,6 +459,34 @@ class TvService(BaseMediaService[Show, Show]):
 
         return show_torrent
 
+    def get_direct_torrent_status(self, download_url: str, title: str) -> dict:
+        """
+        Check the status of a direct-import torrent (see download_direct_torrent)
+        without adding it, by computing its hash and looking it up. Used by iris to
+        poll download progress for a specific episode/torrent pairing.
+
+        :param download_url: Magnet link or URL to the .torrent file.
+        :param title: The release title (only used for hash computation bookkeeping).
+        :return: {"found": False, "status": "unknown"} if no such torrent is known,
+            otherwise {"found": True, "status": <TorrentStatus name>}.
+        """
+        result = IndexerQueryResult(
+            title=title,
+            download_url=download_url,
+            seeders=0,
+            flags=[],
+            size=0,
+            usenet=False,
+            age=0,
+            indexer="iris",
+        )
+        torrent_hash = get_torrent_hash(torrent=result)
+        torrent = self.torrent_service.get_torrent_by_hash(torrent_hash)
+        if torrent is None:
+            return {"found": False, "status": "unknown"}
+        live_status = self.torrent_service.get_torrent_status(torrent)
+        return {"found": True, "status": live_status.name}
+
     def download_direct_torrent(
         self,
         title: str,
@@ -467,6 +497,7 @@ class TvService(BaseMediaService[Show, Show]):
         show_id: ShowId,
         override_show_file_path_suffix: str = "",
         only_file_name: str | None = None,
+        episode_numbers: list[int] | None = None,
     ) -> Torrent:
         """
         Import and download a torrent that was already found by an external search UI,
@@ -486,6 +517,10 @@ class TvService(BaseMediaService[Show, Show]):
         :param show_id: The ID of the show.
         :param override_show_file_path_suffix: Optional override for the file path suffix.
         :param only_file_name: If set, only this file gets normal download priority.
+        :param episode_numbers: If set, only these episode numbers get an EpisodeFile
+            record, overriding the episode numbers parsed from title. Needed when
+            grabbing a single episode out of a season-pack whose title has no
+            per-episode number (the regex would otherwise match every episode).
         :return: The torrent (existing or newly added).
         """
         result = IndexerQueryResult(
@@ -511,14 +546,29 @@ class TvService(BaseMediaService[Show, Show]):
         if show_torrent is None:
             saved_result = self.indexer_service.repository.save_result(result=result)
             show_torrent = self.torrent_service.download(indexer_result=saved_result)
-            self.torrent_service.pause_download(torrent=show_torrent)
+            # qBittorrent's torrents_add is fire-and-forget: the hash isn't always
+            # queryable immediately afterwards, so pausing right away can 404.
+            for attempt in range(10):
+                try:
+                    self.torrent_service.pause_download(torrent=show_torrent)
+                    break
+                except qbittorrentapi.NotFound404Error:
+                    if attempt == 9:
+                        raise
+                    time.sleep(1)
 
         if only_file_name:
             for _ in range(60):
-                if self.torrent_service.restrict_to_file(
-                    show_torrent, lambda name: only_file_name in name
-                ):
-                    break
+                try:
+                    if self.torrent_service.restrict_to_file(
+                        show_torrent, lambda name: only_file_name in name
+                    ):
+                        break
+                except qbittorrentapi.NotFound404Error:
+                    # same qBittorrent torrents_add() race as the pause_download
+                    # retry above: the hash can be momentarily unqueryable right
+                    # after being added.
+                    pass
                 time.sleep(1)
             else:
                 log.warning(
@@ -531,7 +581,11 @@ class TvService(BaseMediaService[Show, Show]):
                 season_number=season_number, show_id=show_id
             )
             episodes = {episode.number: episode.id for episode in season.episodes}
-            target_numbers = result.episode or [e.number for e in season.episodes]
+            target_numbers = (
+                episode_numbers
+                if episode_numbers is not None
+                else (result.episode or [e.number for e in season.episodes])
+            )
             for ep_number in target_numbers:
                 episode_id = episodes.get(EpisodeNumber(ep_number))
                 if episode_id is None:

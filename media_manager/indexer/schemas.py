@@ -151,3 +151,19 @@ class DirectTorrentImport(BaseModel):
     (via qBittorrent file priority), instead of downloading every file in the torrent.
     Used to grab a single episode out of a season-pack release.
     """
+    episode_numbers: list[int] | None = None
+    """
+    If set, only these episode numbers get an EpisodeFile record for this torrent,
+    overriding the episode numbers parsed from the release title. Needed when
+    grabbing a single episode out of a season-pack release whose title has no
+    per-episode number (title regex would otherwise match every episode in the
+    season, falsely marking them all as downloaded).
+    """
+    episode_numbers: list[int] | None = None
+    """
+    If set, only these episode numbers get an EpisodeFile record for this torrent,
+    overriding the episode numbers parsed from the release title. Needed when
+    grabbing a single episode out of a season-pack release whose title has no
+    per-episode number (title regex would otherwise match every episode in the
+    season, falsely marking them all as downloaded).
+    """

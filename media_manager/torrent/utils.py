@@ -125,6 +125,19 @@ def get_files_for_import(
     return video_files, subtitle_files, all_files
 
 
+def _truncate_filename(name: str, max_bytes: int = 200) -> str:
+    """
+    Truncate a filename to a safe byte length, cutting on a UTF-8 character
+    boundary. Needed because some release titles (particularly ones with
+    non-Latin scripts) exceed the 255-byte filename limit most filesystems
+    enforce, which raises OSError: File name too long.
+    """
+    encoded = name.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return name
+    return encoded[:max_bytes].decode("utf-8", errors="ignore")
+
+
 def get_torrent_hash(torrent: IndexerQueryResult) -> str:
     """
     Helper method to get the torrent hash from the torrent object.
@@ -134,7 +147,7 @@ def get_torrent_hash(torrent: IndexerQueryResult) -> str:
     """
     torrent_filepath = (
         MediaManagerConfig().misc.torrent_directory
-        / f"{sanitize_filename(torrent.title)}.torrent"
+        / f"{_truncate_filename(sanitize_filename(torrent.title))}.torrent"
     )
     if torrent_filepath.exists():
         log.warning(f"Torrent file already exists at: {torrent_filepath}")
